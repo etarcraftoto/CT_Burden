@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>比流器負擔(CT Burden)及磁飽和檢討計算系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @media print {
+      body { background:#fff; }
+      .no-print { display:none !important; }
+      .print-shadow { box-shadow:none !important; border:none !important; }
+      .lg\:col-span-7 { grid-column: span 12 / span 12; }
+    }
+    .report-table td { border:1px solid #1f2937; padding:6px 10px; }
+    .inp { width:100%; font-size:.875rem; border:1px solid #cbd5e1; border-radius:.375rem; padding:.5rem; }
+    .inp:focus { outline:none; box-shadow:0 0 0 2px #3b82f6; }
+    .inp.invalid { border-color:#e11d48; background:#fff1f2; }
+    .lbl { display:block; font-size:.75rem; font-weight:500; color:#334155; margin-bottom:.25rem; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+<div class="max-w-7xl mx-auto py-8 px-4">
+
+  <header class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-300 pb-4">
+    <div>
+      <h1 class="text-2xl font-bold">⚡ 比流器二次側負擔 (CT Burden) 與磁飽和檢討系統</h1>
+      <p class="text-sm text-slate-600 mt-1">依據 IEEE / ANSI C57.13 自動計算與驗證</p>
+    </div>
+    <div class="mt-4 md:mt-0 flex gap-2 no-print">
+      <button id="btnReset" class="px-4 py-2 bg-slate-200 text-sm rounded-lg hover:bg-slate-300">載入範例</button>
+      <button id="btnPrint" class="px-4 py-2 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700">列印</button>
+      <button id="btnWord" class="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700">匯出 Word (.doc)</button>
+    </div>
+  </header>
+
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+    <!-- 輸入區 -->
+    <form id="form" class="lg:col-span-5 bg-white p-6 rounded-xl shadow-md space-y-6 no-print" onsubmit="return false">
+      <h2 class="text-lg font-bold border-b pb-2">📝 檢討參數輸入</h2>
+
+      <section class="space-y-3">
+        <h3 class="text-xs font-semibold uppercase text-slate-500">1. 設備基本資訊</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="lbl">開關箱盤名</label><input id="panelName" type="text" class="inp"></div>
+          <div><label class="lbl">供電電壓</label><input id="voltageLevel" type="text" class="inp"></div>
+        </div>
+        <div><label class="lbl">比流器二次側負載型式</label><input id="relayType" type="text" class="inp"></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="lbl">3Φ短路電流 If (kA)</label><input id="faultCurrentKA" type="number" step="0.001" min="0" class="inp"></div>
+          <div>
+            <label class="lbl">安全係數 K</label>
+            <select id="factorK" class="inp">
+              <option value="1.33">1.33 (母線差動 87B/87L)</option>
+              <option value="1">1.0 (過電流/變壓器差動等)</option>
+              <option value="custom">自訂</option>
+            </select>
+            <input id="customK" type="number" step="0.01" min="0.01" class="inp hidden mt-2" placeholder="輸入自訂 K 值">
+          </div>
+        </div>
+      </section>
+
+      <section class="space-y-3">
+        <h3 class="text-xs font-semibold uppercase text-slate-500">2. 比流器 (CT) 規格</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="lbl">CT精度等級 (VCL)</label>
+            <select id="vclSelect" class="inp">
+              <option value="800">C800</option><option value="400">C400</option>
+              <option value="200">C200</option><option value="100">C100</option>
+              <option value="custom">自訂</option>
+            </select></div>
+          <div id="customVclContainer" class="hidden"><label class="lbl">自訂 VCL (V)</label><input id="customVcl" type="number" min="0" class="inp"></div>
+        </div>
+        <div><label class="lbl">CT 全銘牌匝比標示</label><input id="ctFullRatioStr" type="text" class="inp"></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="lbl">最高滿匝比一次安培</label><input id="ctMaxPrimary" type="number" min="1" class="inp"></div>
+          <div><label class="lbl">選用匝比一次安培</label><input id="ctSelectedPrimary" type="number" min="1" class="inp"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="lbl">CT二次內阻 Rs (Ω @75℃)</label><input id="resRs" type="number" step="0.0001" min="0" class="inp"></div>
+          <div><label class="lbl">膝點電壓 Vk (V)</label><input id="voltVk" type="number" step="0.1" min="0" class="inp"></div>
+        </div>
+        <div><label class="lbl">膝點激磁電流 Ie (A)</label><input id="currIe" type="number" step="0.001" min="0" class="inp"></div>
+      </section>
+
+      <section class="space-y-3">
+        <h3 class="text-xs font-semibold uppercase text-slate-500">3. 二次側導線 (Rw) 與儀表負擔 (RB)</h3>
+        <div><label class="lbl">導線規格說明</label><input id="wireSpec" type="text" class="inp"></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="lbl">導線單位阻抗 (Ω/km)</label><input id="wireUnitRes" type="number" step="0.0001" min="0" class="inp"></div>
+          <div><label class="lbl">導線單程長度 (m)</label><input id="wireLength" type="number" step="0.1" min="0" class="inp"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="lbl">二次側總儀表電驛 VA</label><input id="relayVA" type="number" step="0.01" min="0" class="inp"></div>
+          <div><label class="lbl">接線方式</label>
+            <select id="wireLoopFactor" class="inp">
+              <option value="2">雙向回路 (×2)</option><option value="1">單程 (×1)</option>
+            </select></div>
+        </div>
+      </section>
+      <div id="warn" class="text-xs text-rose-600"></div>
+    </form>
+
+    <!-- 報告 -->
+    <div class="lg:col-span-7">
+      <div id="reportPreview" class="bg-white p-8 rounded-xl shadow-lg border border-slate-200 print-shadow leading-relaxed text-sm"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const STORE_KEY = 'ctBurdenInputs_v3';
+
+  const DEFAULTS = {
+    panelName:'CT01、CT05', voltageLevel:'161 KV', relayType:'87B Relay',
+    faultCurrentKA:'45.889', factorK:'1.33', customK:'1.33',
+    vclSelect:'800', customVcl:'800',
+    ctFullRatioStr:'3000-2500-2200-2000-1500-1200-1000-800-500-300/5',
+    ctMaxPrimary:'3000', ctSelectedPrimary:'3000',
+    resRs:'1.5176', voltVk:'650', currIe:'0.025',
+    wireSpec:'PVC. W 5.5mm²', wireUnitRes:'3.7226', wireLength:'25',
+    wireLoopFactor:'2', relayVA:'0.5'
+  };
+  const IDS = Object.keys(DEFAULTS);
+
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const n = (v, d) => Number(v.toFixed(d));
+  const num = id => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : NaN; };
+
+  function load() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch {}
+    IDS.forEach(id => $(id).value = saved[id] ?? DEFAULTS[id]);
+  }
+  function save() {
+    const o = {}; IDS.forEach(id => o[id] = $(id).value);
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(o)); } catch {}
+  }
+
+  function toggleCustom() {
+    $('customVclContainer').classList.toggle('hidden', $('vclSelect').value !== 'custom');
+    $('customK').classList.toggle('hidden', $('factorK').value !== 'custom');
+  }
+
+  function validate() {
+    toggleCustom();
+    const must = ['faultCurrentKA','ctMaxPrimary','ctSelectedPrimary','resRs','voltVk','wireUnitRes','wireLength','relayVA'];
+    if ($('factorK').value === 'custom') must.push('customK');
+    if ($('vclSelect').value === 'custom') must.push('customVcl');
+    const positive = ['ctMaxPrimary','ctSelectedPrimary','customK','customVcl'];
+    ['customK','customVcl'].forEach(id => $(id).classList.remove('invalid'));
+    const bad = [];
+    must.forEach(id => {
+      const v = num(id);
+      const invalid = !Number.isFinite(v) || v < 0 || (positive.includes(id) && v <= 0);
+      $(id).classList.toggle('invalid', invalid);
+      if (invalid) bad.push(id);
+    });
+    $('warn').textContent = bad.length ? '⚠ 請檢查標紅欄位(需為有效數值,K、VCL、匝比須大於 0)' : '';
+    return bad.length === 0;
+  }
+
+  function compute() {
+    const vclSel = $('vclSelect').value;
+    const vcl = vclSel === 'custom' ? num('customVcl') : parseFloat(vclSel);
+    const kSel = $('factorK').value;
+    const K = kSel === 'custom' ? num('customK') : parseFloat(kSel);
+
+    const IfKA = num('faultCurrentKA');
+    const maxP = num('ctMaxPrimary'), selP = num('ctSelectedPrimary');
+    const Rs = num('resRs'), Vk = num('voltVk'), Ie = num('currIe');
+    const unit = num('wireUnitRes'), len = num('wireLength'), loop = num('wireLoopFactor');
+    const VA = num('relayVA');
+
+    const Np = selP / maxP;
+    const ratio = selP / 5;
+    const IfA = IfKA * 1000;
+    const Iext = IfA / ratio;
+
+    let ZT, ztFormula;
+    if (Iext <= 100) {
+      ZT = (Np * vcl) / 100;
+      ztFormula = `(${n(Np,2)} × ${vcl}) / 100`;
+    } else {
+      ZT = (Np * vcl - (Iext - 100) * Rs) / (K * Iext);
+      ztFormula = `[${n(Np,2)} × ${vcl} − (${n(Iext,1)} − 100) × ${Rs}] / (${K} × ${n(Iext,1)})`;
+    }
+    ZT = Math.max(0, ZT);
+
+    const Rw = (unit / 1000) * len * loop;
+    const RB = VA / 25;
+    const ZB = Rs + Rw + RB;
+    const Vs = Iext * ZB;
+
+    const zbPass = ZB <= ZT + 1e-9;
+    const vkPass = Vk > Vs;
+    const zbMargin = ZT > 0 ? (ZT - ZB) / ZT * 100 : -100;
+    const vkMargin = Vs > 0 ? (Vk - Vs) / Vs * 100 : 100;
+
+    return { vcl,K,IfKA,IfA,maxP,selP,Rs,Vk,Ie,unit,len,loop,VA,Np,ratio,Iext,ZT,ztFormula,Rw,RB,ZB,Vs,zbPass,vkPass,zbMargin,vkMargin };
+  }
+
+  const okBox = 'padding:6px 12px;border:1px solid #a7f3d0;background:#ecfdf5;color:#065f46;';
+  const ngBox = 'padding:6px 12px;border:1px solid #fecdd3;background:#fff1f2;color:#9f1239;';
+
+  function buildReport(r) {
+    const v = id => esc($(id).value);
+    const zbOp = r.zbPass ? '≤' : '&gt;';
+    const vkOp = r.vkPass ? '&gt;' : '≤';
+    const tag = `C${r.vcl}`;
+    return `
+    <table class="report-table" style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+      <tr>
+        <td style="width:40%;font-weight:bold;background:#f8fafc;border:1px solid #000;padding:5px;">開關箱盤名: <span style="font-weight:normal">${v('panelName')}</span></td>
+        <td colspan="2" style="font-weight:bold;background:#f8fafc;border:1px solid #000;padding:5px;">比流器二次側負載: <span style="font-weight:normal">${v('relayType')}</span></td>
+        <td style="font-weight:bold;background:#f8fafc;border:1px solid #000;padding:5px;">供電電壓: <span style="font-weight:normal">${v('voltageLevel')}</span></td>
+      </tr>
+      <tr>
+        <td style="vertical-align:top;border:1px solid #000;padding:5px;"><b>3Φ短路故障電流最大值 If =</b><br>${r.IfKA} kA</td>
+        <td style="vertical-align:top;border:1px solid #000;padding:5px;"><b>安全係數</b><br>K = ${r.K}</td>
+        <td colspan="2" style="vertical-align:top;border:1px solid #000;padding:5px;"><b>比流器匝比:</b><br>${v('ctFullRatioStr')}</td>
+      </tr>
+    </table>
+
+    <p>比流器選用匝比 <b>${r.selP}/5</b>,選用匝比與最大滿匝比的比值 <b>Np = ${r.Np.toFixed(2)}</b>,二次側繞組阻抗值 <b>Rs = ${r.Rs.toFixed(4)} Ω</b></p>
+    <p>比流器精度: <b>${tag} 級</b>,<b>VCL = ${r.vcl} V</b>,
+       二次最大外部故障電流 <b>Iext = ${r.IfA.toFixed(0)} / ${r.ratio.toFixed(0)} = ${r.Iext.toFixed(1)} A</b></p>
+    <p style="background:#f8fafc;border:1px solid #e2e8f0;padding:6px;">比流器二次側可承受之最高總負擔阻抗
+       <b>ZT = ${r.ztFormula} = ${r.ZT.toFixed(2)} Ω</b></p>
+
+    <h4 style="font-weight:bold;margin:14px 0 6px;border-top:1px solid #94a3b8;padding-top:8px;">(一)、採阻抗法計算檢討:</h4>
+    <div style="padding-left:12px;">
+      <p>比流器二次側採Y接,導線線徑 ${v('wireSpec')},${r.unit} Ω/KM,${r.len} M,阻抗採${r.loop===2?'雙向':'單程'}計算
+         <b>Rw = ${r.Rw.toFixed(4)} Ω</b></p>
+      <p>比流器二次側所有電驛及儀表之負載總和 = ${r.VA} VA,負載阻抗 <b>RB = ${r.VA} / 5² = ${r.RB.toFixed(4)} Ω</b></p>
+      <p>二次側阻抗合計 <b>ZB = Rs + Rw + RB = ${r.Rs} + ${n(r.Rw,4)} + ${n(r.RB,4)} = ${r.ZB.toFixed(3)} Ω</b></p>
+      <p style="${r.zbPass?okBox:ngBox}">性能判定:ZB = ${r.ZB.toFixed(3)} Ω ${zbOp} ZT = ${r.ZT.toFixed(2)} Ω
+        (裕度 ${r.zbMargin.toFixed(1)}%) ➔ <b>${r.zbPass?'【OK,無交流性磁飽和之問題】':'【NG,負擔過重可能飽和】'}</b></p>
+    </div>
+
+    <h4 style="font-weight:bold;margin:14px 0 6px;border-top:1px solid #94a3b8;padding-top:8px;">(二)、採激磁電壓法驗證:</h4>
+    <div style="padding-left:12px;">
+      <p>最大外部故障電流時,二次側最大端電壓 <b>Vs = Iext × ZB = ${r.Iext.toFixed(1)} × ${r.ZB.toFixed(3)} = ${r.Vs.toFixed(2)} V</b></p>
+      <p>比流器選用 ${tag} 級 ${r.selP}/5,膝點電壓 <b>Vk = ${r.Vk} V</b>,膝點激磁電流 <b>Ie = ${r.Ie} A</b></p>
+      <p style="${r.vkPass?okBox:ngBox}">性能確認:Vk = ${r.Vk} V ${vkOp} Vs = ${r.Vs.toFixed(2)} V
+        (裕度 ${r.vkMargin.toFixed(1)}%) ➔ <b>${r.vkPass?'【OK,無交流性磁飽和之問題】':'【NG,工作點進入磁飽和區】'}</b></p>
+    </div>
+
+    <h4 style="font-weight:bold;margin:14px 0 6px;border-top:2px solid #1e293b;padding-top:8px;">結論:</h4>
+    <p>${r.zbPass && r.vkPass
+      ? `採阻抗法得 <b>ZB (${r.ZB.toFixed(3)} Ω) ≤ ZT (${r.ZT.toFixed(2)} Ω)</b>,且激磁電壓法得 <b>Vk (${r.Vk} V) &gt; Vs (${r.Vs.toFixed(2)} V)</b>,確認此比流器在最大外部故障條件下無交流性磁飽和之虞,<b style="color:#047857">完全符合規定,可予適用。</b>`
+      : `檢討結果未能同時滿足抗飽和條件(ZB=${r.ZB.toFixed(3)}Ω, ZT=${r.ZT.toFixed(2)}Ω, Vk=${r.Vk}V, Vs=${r.Vs.toFixed(2)}V),<b style="color:#be123c">不建議直接採用,請評估更換 CT 精度等級、提高匝比 Tap 或加大二次導線線徑。</b>`}</p>`;
+  }
+
+  let lastReport = '';
+  function calculate() {
+    save();
+    if (!validate()) return;
+    lastReport = buildReport(compute());
+    $('reportPreview').innerHTML = lastReport;
+  }
+
+  function exportWord() {
+    if (!validate()) { alert('請先修正輸入欄位'); return; }
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>比流器負擔檢討報告</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+<style>
+  @page { size:A4; margin:2cm; }
+  body { font-family:'標楷體','DFKai-SB','Times New Roman',serif; font-size:11pt; line-height:1.5; }
+  table { width:100%; border-collapse:collapse; }
+  td { border:1pt solid #000; padding:5pt; font-size:10.5pt; }
+  p { margin:4pt 0; }
+</style></head><body>
+<h2 style="text-align:center">比流器之負擔 (CT Burden) 檢討計算書</h2>${lastReport}</body></html>`;
+    const blob = new Blob(['\ufeff' + html], { type:'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safe = ($('panelName').value || '計算書').replace(/[\\/:*?"<>|]/g, '_');
+    a.href = url; a.download = `CT檢討書_${safe}.doc`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  $('form').addEventListener('input', calculate);
+  $('form').addEventListener('change', calculate);
+  $('btnReset').addEventListener('click', () => {
+    IDS.forEach(id => $(id).value = DEFAULTS[id]); calculate();
+  });
+  $('btnPrint').addEventListener('click', () => window.print());
+  $('btnWord').addEventListener('click', exportWord);
+
+  load(); calculate();
+})();
+</script>
+</body>
+</html>
